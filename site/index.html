@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex — Personal Study Book</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><span class="brand">Codex</span><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <section id="home">
+    <h1>Codex</h1>
+    <p class="lede">A personal study book. Each chapter explains a topic, then
+    resurfaces the exact points I got wrong, was imprecise about, or skipped in
+    past grilling sessions — so the corrections don't get buried when sessions
+    roll over. Start with <a href="ch-rolling.html">Read me first</a>.</p>
+    <div class="chapter-grid">
+      <a class="chapter-card" href="ch-rolling.html"><div class="ct">Read me first: rolling sessions</div><div class="cd">Why this book exists and how to read the ⚠️ and 🔄 callouts.</div></a>
+      <a class="chapter-card" href="ch-authflow.html"><div class="ct">The auth flow, end to end</div><div class="cd">Signup → login → /me → refresh → logout, frontend ↔ backend.</div></a>
+      <a class="chapter-card" href="ch-bcrypt.html"><div class="ct">Password hashing &amp; bcrypt cost</div><div class="cd">What <code>bcrypt.hashSync(pw, 10)</code> really does, and the cost factor.</div></a>
+      <a class="chapter-card" href="ch-jwt.html"><div class="ct">JWT: access, refresh, secrets</div><div class="cd">Two tokens, two secrets, and what a leaked secret lets an attacker do.</div></a>
+      <a class="chapter-card" href="ch-useeffect.html"><div class="ct">The useEffect auth-load bug</div><div class="cd">Why React effect callbacks must be synchronous.</div></a>
+      <a class="chapter-card" href="ch-refresh-tokens.html"><div class="ct">Refresh tokens: storage, transport, rotation gap</div><div class="cd">Why hash with sha256 (not bcrypt), httpOnly vs sameSite, and what the missing rotation costs.</div></a>
+      <a class="chapter-card" href="ch-oauth.html"><div class="ct">OAuth 2.0 sign-in (GitHub + Google)</div><div class="cd">Authorization Code flow, the <code>state</code> cookie that prevents login-CSRF, and the verified-email gate that prevents account takeover.</div></a>
+      <a class="chapter-card" href="ch-abortcontroller.html"><div class="ct">AbortController in useEffect</div><div class="cd">Cancelling in-flight fetches on cleanup — and the request race it really prevents, not the unmount warning.</div></a>
+      <a class="chapter-card" href="how-to-add.html"><div class="ct">How to add a chapter / theme</div><div class="cd">The growth guide: new chapter or new theme.</div></a>
+
+    </div></section>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

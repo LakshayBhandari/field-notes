@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The useEffect async auth-load bug — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-jwt.html">‹ Prev</a><a class="navlink navnext" href="ch-refresh-tokens.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>The <code>useEffect</code> async auth-load bug</h1>
+  <div class="chapter-body">
+        <p>The original boot code looked like this:</p>
+<pre>useEffect(async () =&gt; {
+  if (token &amp;&amp; !user) {
+    const res = await fetchMe(token)
+    // ...
+  }
+}, [])</pre>
+        <p>An <code>async</code> function always returns a Promise. React expects
+        the effect callback to return either nothing or a
+        <em>synchronous cleanup function</em> — never a Promise. An
+        <code>async</code> effect callback returns a Promise, which React treats
+        as garbage, so cleanup never runs and you get races / "logged into the
+        wrong account" bugs.</p>
+        <p>The fix: keep the effect callback <strong>synchronous</strong> and put
+        the awaiting inside. The current <code>App.tsx</code> (L35–39) does the
+        equivalent by chaining a promise instead of awaiting:</p>
+<pre>useEffect(() =&gt; {
+  refreshToken().then(res =&gt; {
+    if (res?.token) load(res.token)
+  }).finally(() =&gt; setBooting(false))
+}, [])</pre>
+        <p>That pattern fits this app because the effect runs once on mount. When an
+effect depends on a value that can change (e.g. a prop), you also need to
+ignore a stale in-flight response — the <strong>cancelled-flag</strong>
+pattern:</p>
+<pre>useEffect(() =&gt; {
+  let cancelled = false;
+  async function load() {
+    const res = await fetchMe(token);
+    if (!cancelled) setUser(res.user);
+  }
+  load();
+  return () =&gt; { cancelled = true; };
+}, [token])</pre>
+        <div class="callout slip">
+          <div class="lbl">⚠️ IMPORTANT</div>
+          <p class="said"><strong>Common misread:</strong> "<code>useEffect(async () =&gt; …)</code> is fine, it just runs the async code."</p>
+          <p><strong>Actually:</strong> it <em>runs</em>, but the callback now returns a Promise instead of a cleanup function. React can't cancel it, so a stale in-flight <code>fetchMe</code> can resolve after a newer one and overwrite state — the wrong-account race.</p>
+          <p><strong>Why it matters:</strong> the rule "effect callbacks are synchronous" isn't style — it's what makes cleanup and cancellation possible.</p>
+        </div></div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

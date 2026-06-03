@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refresh tokens: storage, transport, and the rotation gap — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-useeffect.html">‹ Prev</a><a class="navlink navnext" href="ch-oauth.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>Refresh tokens: storage, transport, and the rotation gap</h1>
+  <div class="chapter-body">
+
+    <p>The JWT chapter answered <em>why</em> there is a second token at all — the
+    access JWT can't be revoked, so a revocable companion is bolted alongside.
+    This chapter is about the three concrete questions that follow:
+    <strong>how is the refresh token stored, how is it transported, and what
+    breaks because there's no rotation yet.</strong></p>
+
+    <h3>The whole picture in one diagram</h3>
+<pre>┌──────────────────────────────── browser ───────────────────────────────────┐
+│                                                                            │
+│   React memory:   accessToken (JWT, 15m)   ← readable by JS                │
+│                                                                            │
+│   Cookie store:   refreshToken cookie       ← httpOnly: JS CANNOT read it  │
+│                                                                            │
+└────────────┬───────────────────────────────────────────────┬───────────────┘
+             │ Authorization: Bearer &lt;access&gt;                │ Cookie sent
+             │ (added by fetch)                              │ automatically
+             ▼                                               ▼
+┌───────────────────────────────── server ───────────────────────────────────┐
+│  /me, /devices …    authMiddleware: jwt.verify(access, JWT_ACCESS_SECRET)  │
+│                     no DB lookup — stateless                               │
+│                                                                            │
+│  /refresh           1. jwt.verify(refresh, JWT_REFRESH_SECRET)             │
+│                     2. find row in db.sessions where                       │
+│                          id        == decoded.sessionId  AND               │
+│                          userId    == decoded.id         AND               │
+│                          tokenHash == sha256(refresh)                      │
+│                     3. issue a fresh access JWT (no new refresh — gap!)    │
+│                                                                            │
+│  /logout            DELETE that row.  /logout-all: DELETE all user's rows  │
+└────────────────────────────────────────────────────────────────────────────┘
+
+db.sessions  [ {id, userId, tokenHash: sha256(refresh), userAgent, …} … ]
+                                  ▲
+                            the only thing on disk —
+                            NOT the refresh token itself</pre>
+
+    <h3>Storage: why the refresh token is <em>hashed</em> in <code>db.sessions</code></h3>
+    <p>Look at a row in <code>db.json</code>: <code>tokenHash</code> is a sha256
+    digest. The raw refresh token never touches the disk. The threat model is
+    the same as passwords — a database leak — and the defence is the same:
+    store only a one-way derivative.</p>
+<pre>WITHOUT hashing (raw token in db.sessions):
+─────────────────────────────────────────────
+attacker steals db.json   →   gets ready-to-use refresh tokens for
+                              every active session   →   paste into
+                              the Cookie header   →   instantly is
+                              every logged-in user, for up to 7 days
+
+WITH hashing (tokenHash = sha256(refresh)):
+─────────────────────────────────────────────
+attacker steals db.json   →   gets a list of sha256 digests   →
+                              cannot reverse a hash   →   has nothing
+                              they can actually replay against /refresh</pre>
+
+    <h3>Why <em>fast</em> hashing here (sha256), but slow (bcrypt) for passwords</h3>
+    <p>The principle "never store the raw secret" is the same; the choice of
+    hash is different because the inputs are wildly different in
+    <strong>entropy</strong>.</p>
+<pre>PASSWORD                                REFRESH TOKEN (JWT)
+─────────────────────────               ────────────────────────────
+"hunter2"                               eyJhbGciOiJIUzI1NiIs…
+~10 chars, human-chosen                 hundreds of chars,
+~30 bits of entropy                     random + signed
+                                        hundreds of bits of entropy
+GUESSABLE in days on a GPU              UNGUESSABLE before the heat
+                                        death of the sun
+↓                                       ↓
+must use a SLOW hash so each            a FAST hash is fine — nobody is
+guess is expensive (bcrypt at           guessing this; the only thing
+cost 10 → 2¹⁰ iterations)               the hash defends against is a
+                                        leak being directly replayable</pre>
+    <p>Rule of thumb: <strong>fast hash is safe when the input itself is
+    high-entropy / random.</strong> Slow hash earns its keep only when the
+    input is something a human picked.</p>
+
+    <h3>Transport: <code>httpOnly</code> cookie vs JS memory — two different attacks</h3>
+    <p>The access token sits in React state. The refresh token sits in an
+    <code>httpOnly</code> cookie. The asymmetry is deliberate, and the two
+    cookie flags involved defend against <em>two different</em> attacks. Do
+    not blur them.</p>
+<pre>           XSS attack                          CSRF attack
+           ────────────                         ────────────
+attacker  injects a &lt;script&gt; into            tricks the user's browser into
+          your page (e.g. via a               firing a request at your API
+          vulnerable dependency,              from a different origin
+          stored XSS, etc.)                   (evil.com submits a hidden
+                                              form to your-api.com)
+goal      read tokens out of the              ride along on credentials
+          page and exfiltrate them            the browser auto-attaches
+defends?
+ ─ access token in memory   ✅ JS can read it, but it dies on tab close;
+                               narrow window. localStorage would be worse —
+                               persistent and JS-readable.
+ ─ refresh token in cookie  ✅ with httpOnly: JS literally CANNOT read it.
+                               The browser sends it; scripts never touch it.
+                             ✗  without httpOnly: the cookie is JS-readable,
+                               same risk as localStorage.
+
+ ─ refresh token in cookie  ✗ httpOnly doesn't help — the browser auto-sends
+                               cookies cross-origin (which is the attack).
+                             ✅ sameSite: lax/strict blocks the cross-origin
+                               send → CSRF defeated.
+
+TL;DR  httpOnly  →  defends against XSS reading the cookie.
+       sameSite  →  defends against CSRF auto-sending the cookie.
+       Two flags, two attacks. Both are set on the refresh cookie.</pre>
+
+    <h3>Inside <code>/refresh</code>: signature is integrity, the DB row is liveness</h3>
+    <p>The route does two distinct checks. They feel redundant until you ask
+    "what could a valid-signature-but-stale-row mean?"</p>
+<pre>step 1 — jwt.verify(refresh, JWT_REFRESH_SECRET)
+         proves: the token was issued by US, has not been tampered,
+                 has not expired.
+         does NOT prove: that we still consider it valid right now.
+
+step 2 — look up db.sessions for the row referenced by decoded.sessionId
+         AND require tokenHash == sha256(refresh)
+         proves: this exact token still corresponds to a live session
+                 (nobody hit /logout, /devices, or /logout-all).
+
+what step 2 catches that step 1 cannot:
+─────────────────────────────────────────
+  • user clicked logout 2 minutes ago  → session row deleted, sig still valid
+  • another device revoked this session → same
+  • /logout-all after suspected breach   → same
+  • refresh token came from a stale db backup → sessionId would match
+                                                 but tokenHash would not
+
+SIGNATURE  proves the token wasn't TAMPERED.
+DB ROW     proves the token wasn't REVOKED.
+You need both, because they answer different questions.</pre>
+
+    <h3>The rotation gap — what's missing, and the attack it enables</h3>
+    <p><code>/refresh</code> currently mints a new <em>access</em> token but
+    reuses the same <em>refresh</em> token for the full 7 days. That's the
+    gap. With rotation, every <code>/refresh</code> call would invalidate the
+    old refresh token (delete + recreate the session row with a new hash) and
+    return a brand-new refresh cookie. Why does this matter? Walk through the
+    same attack twice:</p>
+<pre>SCENARIO   attacker steals user's refresh token on day 1 (via malware,
+           shared machine, leaked cookie, etc.). User keeps using the app.
+
+WITHOUT ROTATION (today)
+─────────────────────────
+  day 1   attacker pastes the stolen cookie into their browser
+          → /refresh succeeds → issues access token → they're you
+  day 2   user uses the app: /refresh succeeds with the SAME token
+          → fresh access token → they're still you
+  …       both copies of the same token work independently for 7 days.
+          The DB sees identical hash + sessionId both times.
+          NOBODY NOTICES. Attacker has 7 days of silent access.
+
+WITH ROTATION
+─────────────
+  day 1   attacker calls /refresh first.
+          server rotates: deletes old session row,
+                          inserts new row with new tokenHash,
+                          sets new refresh cookie on attacker's browser
+  day 2   user calls /refresh with the *original* refresh token.
+          jwt.verify   ✅  (sig still valid — it WAS issued by us)
+          sessions row with that sessionId still exists ✅
+          tokenHash matches?  ❌  (we rotated to a new hash)
+          → /refresh fails for the real user.
+          → user is forced to log in again.
+          → user notices the anomaly.
+
+  flipped: if the user refreshes first, the attacker's stolen token
+           becomes the one that fails the tokenHash check next time.
+           Either way, the *first reuse of the now-rotated token* is
+           the signal: someone has it who shouldn't.
+
+The pattern is called rotation with reuse detection.
+The fact that an old token was presented at all is the alarm.</pre>
+    <p>Adding it is one block of code: in <code>/refresh</code>, after the
+    checks pass, delete the existing session row, sign a new refresh JWT,
+    insert a new row, set a new cookie. The architecture already has the
+    place to record state — rotation just uses it.</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "We hash the refresh token in <code>db.sessions</code> because it's a secret and bcrypt does that for passwords too."</p>
+      <p><strong>Actually:</strong> we hash it for the same threat (DB leak) but with a <em>fast</em> hash (sha256), not bcrypt. Refresh tokens are hundreds of bits of random entropy — nobody is brute-forcing them, so slowness adds nothing. The hash exists purely so a stolen <code>db.json</code> isn't a stash of ready-to-replay tokens.</p>
+      <p><strong>Why it matters:</strong> the rule is "fast hash is safe when the input itself is unguessable" — passwords need slow hashing because <em>they</em> are guessable, refresh tokens don't because they aren't.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "<code>httpOnly</code> on the refresh cookie is what stops CSRF."</p>
+      <p><strong>Actually:</strong> <code>httpOnly</code> stops <em>XSS</em> from reading the cookie (JS can't see it at all). CSRF — where the browser is tricked into auto-sending the cookie cross-origin — is stopped by <code>sameSite: lax</code> (or <code>strict</code>). Two flags, two attacks; conflating them leaves one side wide open.</p>
+      <p><strong>Why it matters:</strong> if you ever remove <code>sameSite</code> "because we already have <code>httpOnly</code>", you've quietly re-opened CSRF. They are not substitutes.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "Once <code>jwt.verify</code> passes on the refresh token, we don't really need to hit the DB."</p>
+      <p><strong>Actually:</strong> <code>jwt.verify</code> proves the token wasn't <em>tampered</em>. It cannot prove it wasn't <em>revoked</em> — a logout 30 seconds ago leaves the signature mathematically perfect. The DB row check is the only thing that turns a valid signature into a live session.</p>
+      <p><strong>Why it matters:</strong> without that lookup, <code>/logout</code>, <code>/devices/:id</code>, and <code>/logout-all</code> are decorative — the refresh token would keep working until its 7-day exp passed.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "Without rotation, a stolen refresh token isn't much of a problem — the attacker still has to use it."</p>
+      <p><strong>Actually:</strong> the same refresh token works for both attacker and real user for its full 7-day lifetime, both can call <code>/refresh</code> independently, and the server cannot tell their requests apart (identical sessionId + tokenHash). Nothing flags the duplicate use. Rotation is what turns "an old token was presented" into a detectable anomaly.</p>
+      <p><strong>Why it matters:</strong> rotation isn't a polish item — it's the mechanism that gives you any chance of <em>noticing</em> a compromise mid-session. Without it, the only signal is the user reporting weirdness.</p>
+    </div>
+
+    <div class="callout caveat">
+      <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+      <p>The rotation gap came up only at the end of the grilling round, and only in passing. Without this note, future-me is likely to "explain refresh tokens" by describing the current code as the finished design, instead of as the 80% version that's still missing rotation + reuse detection.</p>
+    </div>
+
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

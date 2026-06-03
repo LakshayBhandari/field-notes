@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read me first: rolling sessions — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navnext" href="ch-authflow.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>Read me first: rolling sessions</h1>
+  <div class="chapter-body">
+        <p>This book exists because of a specific failure mode. When I get
+        grilled by Claude, the sharpest moments are corrections — "half-right
+        but imprecise", "you skipped the scary part". Those moments are the
+        most valuable thing in the whole session.</p>
+        <p>But Claude Code sessions <em>roll</em>: a long conversation gets
+        compacted or continued in a new chat. The auth grill that produced most
+        of this book spans two transcript files —
+        <code>1f808049…</code> continued into <code>5ecebe87…</code>. After a
+        roll, the early corrections are summarized away or pushed out of
+        context. They're effectively lost unless I write them down.</p>
+        <h3>How to read this book</h3>
+        <ul>
+          <li>Normal text = the explanation / refresher.</li>
+          <li><span style="color:var(--accent);font-weight:700">⚠️ Important</span> = a point that's easy to get wrong, as <em>common misread → actually → why it matters</em>.</li>
+          <li><span style="color:var(--secondary);font-weight:700">🔄 Rolling-session caveat</span> = a point that got buried by a session roll and must not be lost again.</li>
+        </ul></div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

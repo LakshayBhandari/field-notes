@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The auth flow, end to end — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-rolling.html">‹ Prev</a><a class="navlink navnext" href="ch-bcrypt.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>The auth flow, end to end</h1>
+  <div class="chapter-body">
+        <p>Two tokens. A short-lived <strong>access token</strong> (15&nbsp;min,
+        returned in JSON, kept in a JS variable) and a long-lived
+        <strong>refresh token</strong> (7&nbsp;days, set as an
+        <code>httpOnly</code> cookie the JS can't read).</p>
+        <ol>
+          <li><strong>Signup</strong> — <code>POST /signup</code> hashes the password with bcrypt and stores the user (<code>backend/index.js</code> L55).</li>
+          <li><strong>Login</strong> — <code>POST /login</code> verifies with <code>bcrypt.compareSync</code>, signs an access token, signs a refresh token, sets it as an <code>httpOnly</code> cookie, and records a server-side session row (L80–L115).</li>
+          <li><strong>Protected calls (e.g. <code>GET /me</code>, L199)</strong> — <code>authMiddleware</code> reads <code>Authorization: Bearer &lt;token&gt;</code>, runs <code>jwt.verify(token, JWT_ACCESS_SECRET)</code>, attaches <code>request.user</code> (L36).</li>
+          <li><strong>Expiry &amp; refresh</strong> — when the access token expires the API returns <strong>401</strong>; <code>authedFetch</code> calls <code>POST /refresh</code> (cookie sent automatically), gets a fresh access token, and retries the original request once (<code>api.ts</code> L60+).</li>
+          <li><strong>Logout</strong> — <code>POST /logout</code> deletes the server session and clears the cookie (L152).</li>
+        </ol>
+        <div class="callout slip">
+          <div class="lbl">⚠️ IMPORTANT</div>
+          <p class="said"><strong>Common misread:</strong> "After login the backend just says 'yes you're valid' and that's it."</p>
+          <p><strong>Actually:</strong> a plain login that "forgets" leaves no way for the <em>next</em> request to prove you're logged in — that statelessness is exactly the problem JWT solves here. The access token <em>is</em> the proof carried on every later request.</p>
+          <p><strong>Why it matters:</strong> if you don't see why the token has to travel on each call, the whole <code>authMiddleware</code> / <code>Authorization: Bearer</code> step looks like ceremony instead of the load-bearing part.</p>
+        </div>
+        <div class="callout caveat">
+          <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+          <p>The refresh-then-retry-once mechanism in <code>authedFetch</code> was explained late in the grill, just before the session rolled — it's the piece most likely to be summarized away. The retry happens <em>once</em>; a second 401 means the refresh token is dead and the user must log in again.</p>
+        </div></div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

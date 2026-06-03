@@ -1,0 +1,11 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# python (validator tooling)
+__pycache__/
+*.pyc
+
+# vercel
+.vercel

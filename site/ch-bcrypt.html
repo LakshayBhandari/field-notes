@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Password hashing &amp; the bcrypt cost factor — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-authflow.html">‹ Prev</a><a class="navlink navnext" href="ch-jwt.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>Password hashing &amp; the bcrypt cost factor</h1>
+  <div class="chapter-body">
+
+    <p><code>bcrypt.hashSync(password, 10)</code> (<code>backend/index.js</code> L62)
+    does three things: generates a random <strong>salt</strong>, runs a
+    deliberately slow key-derivation <code>2ⁿ</code> times, and returns a
+    single string that embeds the algorithm, the cost, the salt, AND the hash —
+    all in one. Login uses <code>bcrypt.compareSync(password, user.password)</code>
+    (L89), which extracts the embedded salt/cost, re-derives the hash with
+    them, and compares.</p>
+
+    <h3>Anatomy of a stored hash</h3>
+    <p>Open <code>db.json</code> and look at a real <code>password</code> field.
+    It is not one opaque blob — it is four pieces glued by <code>$</code>:</p>
+<pre>$2b$10$N9qo8uLOickgx2ZMRZoMye  IjZAgcfl7p92ldGxad68LJZdL17lhWy
+└┬┘ └┬┘ └──────────┬─────────┘  └────────────┬────────────┘
+ │   │             │                         │
+ │   │       SALT (22 chars,            HASH (depends on
+ │   │       random per signup,         password + salt + cost)
+ │   │       PUBLIC — stored
+ │   │       in plain sight)
+ │   │
+ │  COST: 2ⁿ iterations (here 10 → 1024 rounds)
+ │
+ ALGO: 2b = bcrypt</pre>
+    <p>Three of those four pieces (<strong>algo, cost, salt</strong>) are
+    not secret. Anyone with the database also has them. Only the password
+    itself is unknown — and the whole point of the design is that
+    re-deriving it is expensive.</p>
+
+    <h3>The cost factor and the 2ⁿ curve</h3>
+    <p>The <code>10</code> is the <strong>cost factor</strong>. Iterations =
+    <code>2ⁿ</code>. Each +1 doubles the work.</p>
+<pre>cost   iterations       relative   ≈ time per hash
+────────────────────────────────────────────────────
+  8       256              1×          ~12 ms
+ 10     1 024              4×          ~50 ms   ← your code
+ 12     4 096             16×         ~200 ms
+ 14    16 384             64×         ~800 ms
+ 16    65 536            256×         ~3.2 s</pre>
+    <p>Cost 10 → 14 is <strong>+4</strong>, which is <strong>2⁴ = 16×</strong>
+    more work, not "a bit more." It's not vague complexity — it's a
+    quantifiable knob you turn as hardware gets faster.</p>
+
+    <h3>The frequency asymmetry — the actual point of slowness</h3>
+    <p>Raising cost slows the server <em>and</em> the attacker by the same
+    multiplier. So why is it a win? Because the two sides run very different
+    counts of hashes:</p>
+<pre>SAME 16× per-hash slowdown applied to:
+
+  Your server (once per /login request)
+  ████ × 1
+  → 16× of "once" ≈ unnoticeable
+
+  Attacker brute-forcing a leaked DB (once per guess)
+  ████ × 1 000 000 000 …
+  → 16× of "a billion" = the difference between
+    cracking in 1 week vs 16 weeks</pre>
+    <p>That is the whole game: same multiplier, wildly different impact,
+    because of how many times each side runs it.</p>
+
+    <h3>When does this slowness actually matter?</h3>
+    <p>For a normal login it doesn't. 50 ms is invisible. Slowness only
+    earns its keep <em>after</em> something bad has already happened:</p>
+<pre>NORMAL DAY
+  user → POST /login → bcrypt.compare (≈50 ms) → ok
+  No attacker present. bcrypt could be 1 ms or 50 ms.
+  Doesn't matter. No defence needed.
+
+AFTER A DB BREACH (db.json is stolen)
+  attacker, OFFLINE, on their own machines:
+    for each guess in [billions]:
+      bcrypt(guess, leaked_salt, cost) == leaked_hash?
+  ↑ THIS is the only moment bcrypt's slowness pays off.
+    It caps the attacker at ~thousands/sec instead of
+    ~billions/sec.</pre>
+
+    <h3>How <code>compareSync</code> works without decrypting</h3>
+    <p>Bcrypt is one-way — there is no decryption. To verify a login:</p>
+<pre>compareSync(inputPassword, storedHash):
+  1. Read algo, cost, salt out of storedHash
+     (they are right there in the prefix — see anatomy above)
+  2. Re-run the SAME computation:
+        bcrypt(inputPassword, salt, cost)
+  3. Compare the new result against storedHash byte-for-byte
+     → equal  → password correct
+     → not    → wrong password</pre>
+    <p>The verification works <em>because</em> the salt and cost are public
+    — they have to be reused at compare-time. There is nothing to "decrypt."</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "Higher cost just makes the hash 'more complex.'"</p>
+      <p><strong>Actually:</strong> the output string is the same length whether cost is 10 or 14. What changes is <em>internal iterations</em> = <code>2ⁿ</code>. Cost 10 → 14 is exactly 16384 ÷ 1024 = 16× more work per hash. The math is the point — not vague complexity.</p>
+      <p><strong>Why it matters:</strong> "more complex" hides that the slowdown is <em>quantifiable</em> — you can tune it deliberately every few years as hardware gets faster.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "The salt is a secret the attacker needs to figure out."</p>
+      <p><strong>Actually:</strong> the salt is <em>public</em>. It is stored in plain sight inside the hash string (chars 8–29 of <code>$2b$10$&lt;salt&gt;&lt;hash&gt;</code>). If the attacker has the database, they already have every salt. The salt is not protecting you by being hidden — see "What the salt actually does" below.</p>
+      <p><strong>Why it matters:</strong> people who think "I'll just hide the salt" go down the wrong rabbit hole. The real defence is the cost factor, not salt secrecy.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "What the salt actually does is make hashing harder."</p>
+      <p><strong>Actually:</strong> the salt has two specific jobs, neither of which is being slow: (1) it makes <em>identical passwords produce different hashes</em>, so an attacker can't tell which users share a password; (2) it defeats <em>precomputed</em> rainbow tables — because the salt is random per user, no precomputed lookup table can ever match, forcing the attacker to brute-force each user's hash from scratch.</p>
+      <p><strong>Why it matters:</strong> salt and cost are doing two different jobs. Cost = slow the per-guess work. Salt = stop the attacker from skipping the work with a precomputed table. You need both.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "bcrypt's slowness protects my live login API."</p>
+      <p><strong>Actually:</strong> for a normal login it does nothing useful. The only scenario where slowness saves you is <em>after</em> your hash database has leaked and the attacker is brute-forcing it <em>offline</em> on their own hardware. Until that breach happens, you could use any hash and notice no security difference.</p>
+      <p><strong>Why it matters:</strong> naming the actual scenario (offline crack of a stolen DB) is what turns "use bcrypt" from a magic incantation into a defensible engineering choice.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "Any hash works for passwords — SHA-256 is fine."</p>
+      <p><strong>Actually:</strong> a fast hash lets an attacker test billions of stolen-hash guesses per second; bcrypt's slowness caps that at maybe a few thousand per second. Same security goal, opposite design choice from a normal hash.</p>
+      <p><strong>Why it matters:</strong> it's the reason you don't just <code>sha256(password)</code> and call it done.</p>
+    </div>
+
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

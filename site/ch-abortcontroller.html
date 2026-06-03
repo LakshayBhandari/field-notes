@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AbortController in useEffect — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-oauth.html">‹ Prev</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>AbortController in useEffect</h1>
+  <div class="chapter-body">
+    <p><code>AbortController</code> is a tiny browser API: you make one, hand its <code>.signal</code> to <code>fetch</code>, and later call <code>.abort()</code> to cancel that request. When aborted, the fetch promise rejects with a <code>DOMException</code> named <code>AbortError</code>.</p>
+    <p>In a data-fetching effect, you create a fresh controller <em>per run</em>, pass the signal to every fetch, and abort it from the effect's <strong>cleanup</strong> function. React runs cleanup before the effect re-runs (deps changed) and when the component unmounts — so the previous, still-in-flight request gets cancelled the moment a new one starts.</p>
+    <pre><code>useEffect(() =&gt; {
+  const controller = new AbortController();
+
+  fetch(url, { signal: controller.signal })
+    .then(r =&gt; r.json())
+    .then(setData)
+    .catch(err =&gt; {
+      if (controller.signal.aborted) return; // expected — not a real error
+      setError(err.message);
+    });
+
+  return () =&gt; controller.abort(); // cleanup: cancel the stale request
+}, [url]);</code></pre>
+    <p>Note the <code>catch</code> guard: an abort rejects the promise, so without the <code>controller.signal.aborted</code> check your error UI would light up on every refetch. Abort is a client-side concern — it stops <em>you</em> from reading the response; the server may still finish the work.</p>
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "The cleanup/abort is just to silence React's old <em>can't setState on an unmounted component</em> warning — React 18 dropped that warning, so I can skip it."</p>
+      <p><strong>Actually:</strong> the real bug it kills is a <strong>race between overlapping requests</strong>. Fire request A, change the input, fire request B — if A is slower it can resolve <em>after</em> B and overwrite the newer data with stale data. Order of arrival ≠ order of dispatch. Aborting A on cleanup guarantees the latest request wins.</p>
+      <p><strong>Why it matters:</strong> refetch buttons and changing dependencies spawn overlapping requests constantly. The symptom is old data intermittently flashing in over new data — non-deterministic, network-timing-dependent, and nearly impossible to reproduce on demand. Cleanup makes it structurally impossible.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

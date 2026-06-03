@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JWT: access vs refresh, secrets, and the leakage attack — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-bcrypt.html">‹ Prev</a><a class="navlink navnext" href="ch-useeffect.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>JWT: access vs refresh, secrets, and the leakage attack</h1>
+  <div class="chapter-body">
+
+    <p>Two independently-signed tokens with <strong>two different secrets</strong>.
+    The access token (<code>jwt.sign({ id: user.id, ... }, JWT_ACCESS_SECRET, { expiresIn: '15m' })</code>,
+    <code>backend/index.js</code> L92) is short-lived and stateless. The refresh
+    token (<code>jwt.sign({ sessionId, id: user.id, ... }, JWT_REFRESH_SECRET, { expiresIn: '7d' })</code>,
+    L93–96) is long-lived and carries a <code>sessionId</code> that
+    <code>/refresh</code> checks against a server-side row in
+    <code>db.sessions</code> (L131). <code>authMiddleware</code> trusts a request
+    only if <code>jwt.verify(token, JWT_ACCESS_SECRET)</code> succeeds (L42).</p>
+
+    <h3>Anatomy of a JWT — three pieces, only one is "secret-y"</h3>
+    <p>A JWT is a single string with three parts separated by <code>.</code></p>
+<pre>     HEADER          .          PAYLOAD          .       SIGNATURE
+─────────────────       ────────────────────         ───────────────────
+eyJhbGciOiJIUzI1Ni…     eyJpZCI6MTc3ODE4Nj…          XRXWJcLz5L5kN4unA2…
+
+ base64url(JSON)         base64url(JSON)             HMAC-SHA256( header
+ { alg, typ }            { id, email, iat, exp }       + "." + payload,
+                                                       SECRET )
+
+ PUBLIC                  PUBLIC                       PROVES authorship
+ (anyone can decode)     (anyone can decode)          (only the holder
+                                                       of SECRET could
+                                                       have produced it)</pre>
+    <p>The header and payload are <strong>base64-encoded</strong>, which is
+    not encryption — it is a reversible reformatting. Anyone with the token
+    can decode them with no key. Try it in Node yourself:</p>
+<pre>node -e 'console.log(Buffer.from(
+   "eyJpZCI6MTc3ODE4NjI1MjQwNCwiZW1haWwiOiJ0ZXN0QHRlc3QuY29tIn0",
+   "base64").toString())'
+// → {"id":1778186252404,"email":"test@test.com"}</pre>
+    <p>That payload was decoded with zero secret. The signature is the only
+    part the secret is required for — and even the signature does not <em>hide</em>
+    anything; it <em>proves</em> something.</p>
+
+    <h3>What the signature actually does (and doesn't do)</h3>
+<pre>Suppose an attacker copies a real token and tampers with the payload,
+trying to escalate from id=42 to id=1 (admin):
+
+   ORIGINAL:   header . { id: 42 }    . sigA   ← server-issued, valid
+   ATTACKER:   header . { id: 1  }    . sigA   ← payload changed,
+                                                 sigA kept (they cannot
+                                                 produce a new signature
+                                                 without the SECRET)
+
+   server: jwt.verify(token, SECRET)
+        1. recomputes signature for the NEW header+payload
+        2. expected = HMAC-SHA256(header + "." + { id: 1 }, SECRET)
+        3. expected ≠ sigA  →  throws  →  401
+
+The signature doesn't conceal the data. It makes any change to the data
+visible the moment the server re-checks it.</pre>
+
+    <h3>Stateless verification — no database touch on every request</h3>
+    <p>The expiry (<code>exp</code>) is a claim baked <em>into the signed payload</em>.
+    Because tampering with it breaks the signature, the server can trust the
+    embedded <code>exp</code> as-is. Both checks happen with just the token + the secret:</p>
+<pre>authMiddleware(request):
+  ┌────────────────────────────────────────────────────┐
+  │ token = request.headers.authorization.split(" ")[1]│
+  │                                                    │
+  │ jwt.verify(token, JWT_ACCESS_SECRET):              │
+  │   (1) recompute HMAC-SHA256(header+payload, SECRET)│
+  │       must equal part 3?      → tamper check       │
+  │   (2) read exp out of payload                      │
+  │       must be in the future?  → expiry check       │
+  │                                                    │
+  │ ZERO database calls. The token carries everything. │
+  └────────────────────────────────────────────────────┘</pre>
+
+    <h3>The unavoidable trade-off: you can't un-issue a JWT</h3>
+    <p>Statelessness is the speed win — and the limitation. Because nothing
+    server-side records that a particular access token exists, nothing
+    server-side can revoke it before its embedded <code>exp</code> passes:</p>
+<pre>min 0   user logs in    →  access token T (valid 15 min) returned
+min 2   admin BANS them  →  users row marked banned in db.json
+min 3   banned user makes a request with T
+        authMiddleware:
+          signature valid       ✅
+          exp not yet passed    ✅
+          → REQUEST SUCCEEDS    ← server has no way to know
+
+The server didn't store T anywhere, so it can't "delete" it.
+Up to ≤ 15 minutes of usable access after the ban. That is
+the cost of statelessness — accepted, not solved.</pre>
+
+    <h3>Why the architecture is short-access + revocable-refresh</h3>
+    <p>The fix is structural, not a smarter check inside <code>authMiddleware</code>:</p>
+<pre>┌────────────────────── access token ──────────────────────┐
+│  short (15 min), stateless, NOT revocable                │
+│  Damage window if user is banned/compromised: ≤ 15 min   │
+│  In exchange: zero DB lookup on every authenticated req  │
+└──────────────────────────────────────────────────────────┘
+
+┌────────────────────── refresh token ─────────────────────┐
+│  long (7 days), backed by a row in db.sessions           │
+│  /refresh checks: jwt.verify  AND  sessions row exists   │
+│      AND  sessionId matches  AND  tokenHash matches      │
+│                                                          │
+│  Revocation = DELETE the sessions row:                   │
+│    POST /logout            → delete this session         │
+│    DELETE /devices/:id     → delete a specific session   │
+│    POST  /logout-all       → delete all of user's rows   │
+│                                                          │
+│  Next /refresh call after that → no session row → fail   │
+│  → access token expires within 15 min → permanently out  │
+└──────────────────────────────────────────────────────────┘</pre>
+    <p>Two layers, two jobs. The access token gives you cheap statelessness
+    most of the time; the refresh token gives you a place you <em>can</em>
+    revoke, bounded by a tiny worst-case lag.</p>
+
+    <h3>What a leaked <code>JWT_ACCESS_SECRET</code> actually allows</h3>
+<pre>Without the secret:                With the leaked secret:
+─────────────────────────          ─────────────────────────
+attacker must steal an             attacker runs locally:
+already-issued token from
+a real user's browser                jwt.sign(
+                                       { id: anyUserId },
+                                       leakedSecret,
+                                       { expiresIn: '15m' }
+                                     )
+
+Bound by:                          Bound by:
+ • that one user                    • nobody — they can mint a
+ • whatever access that user          token for ANY user, including
+   actually has                       admin
+ • the token's own exp              • no password needed
+                                    • the server cannot distinguish
+                                      this from a legitimate token —
+                                      the signature is mathematically
+                                      valid</pre>
+    <p>That is why the secret lives in <code>.env</code>, never in code, never
+    in a commit, never shared with the frontend; and why access and refresh
+    use <em>different</em> secrets — a leak of one shouldn't grant the other.</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "A JWT is encrypted, so the payload is hidden from the user."</p>
+      <p><strong>Actually:</strong> a JWT is <em>signed</em>, not encrypted. The payload is base64url-encoded, which is a reversible reformatting any tool (or one line of Node) can decode with no key. If you put a card number, a password, or any secret in the payload, you are publishing it to every holder of the token.</p>
+      <p><strong>Why it matters:</strong> safe contents for a JWT payload are identifiers and claims (user id, role, exp) — never anything that would be a leak if read aloud.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "The signature hides the payload from tampering."</p>
+      <p><strong>Actually:</strong> the signature doesn't hide data — it makes data <em>tamper-evident</em>. Attackers can freely edit the payload (it's base64), but they can't recompute a matching signature without the secret, so the server's <code>jwt.verify</code> detects the change and throws.</p>
+      <p><strong>Why it matters:</strong> "tamper-evident, not data-hiding" is the precise mental model. It's why <code>jwt.verify</code> is the entire defence — skip it and a token's payload becomes user-editable.</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "If we need to ban someone, the server can just invalidate their JWT."</p>
+      <p><strong>Actually:</strong> an unexpired access JWT cannot be revoked — the server has no record of it to delete. Verification is purely <em>(signature ok? exp in future?)</em> using only the token + secret. The only fixes are: wait for <code>exp</code>, or move state server-side (which is exactly what the refresh-token + <code>sessions</code> table does).</p>
+      <p><strong>Why it matters:</strong> the inability to revoke is the design's <em>defining</em> trade-off — making the access token short (15 min) and adding a revocable refresh layer is the answer, not an "extra feature."</p>
+    </div>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "A leaked <code>JWT_ACCESS_SECRET</code> isn't that bad — an attacker still needs a password or DB access."</p>
+      <p><strong>Actually:</strong> the secret is the <em>only</em> thing standing between an attacker and a valid token. With it, the attacker runs <code>jwt.sign({ id: &lt;anyone&gt; }, leakedSecret)</code> locally and produces a token <code>authMiddleware</code> will happily accept as <em>any</em> user — no password, no DB access needed, and the server cannot distinguish forged from legitimate.</p>
+      <p><strong>Why it matters:</strong> it's why the secret lives in <code>.env</code>, never in code, and why access ≠ refresh secret — a leak of one shouldn't grant the other.</p>
+    </div>
+
+    <div class="callout caveat">
+      <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+      <p>The reason the refresh token <em>also</em> checks a server-side <code>sessionId</code> (so it can be revoked, unlike the stateless access token) was made near a session boundary. Without it you'd "explain" JWT as fully stateless and miss why <code>/logout</code> and <code>/devices</code> can exist at all.</p>
+    </div>
+
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

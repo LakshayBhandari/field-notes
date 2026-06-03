@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to add a chapter — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>How to add a chapter</h1>
+  <div class="chapter-body">
+      <p>This is a plain static site — no build step. The phrases
+      <strong>How to add a chapter</strong> and <strong>How to add a theme</strong>
+      below describe the multi-page workflow.</p>
+      <h2 id="add-chapter">How to add a chapter</h2>
+      <ol>
+        <li>Copy <code>ch-TEMPLATE.html</code> to <code>ch-NAME.html</code> (lowercase, hyphenated, e.g. <code>ch-csrf.html</code>).</li>
+        <li>Edit it: set the <code>&lt;title&gt;</code> and <code>&lt;h1&gt;</code>, then write the explanation and the ⚠️/🔄 callouts (the template already contains the callout skeletons).</li>
+        <li>Wire navigation: the <code>← Home</code> link already points to <code>index.html</code>. Set this page's <code>‹ Prev</code> to the chapter that was previously last; set that previously-last chapter's <code>Next ›</code> to this new page; set or delete this page's <code>Next ›</code> (delete if this is now the last chapter).</li>
+        <li>Add one card to the <code>.chapter-grid</code> in <code>index.html</code>:</li>
+      </ol>
+<pre>&lt;a class=&quot;chapter-card&quot; href=&quot;ch-NAME.html&quot;&gt;&lt;div class=&quot;ct&quot;&gt;Title&lt;/div&gt;&lt;div class=&quot;cd&quot;&gt;One line.&lt;/div&gt;&lt;/a&gt;</pre>
+      <ol start="5">
+        <li>Run <code>python3 ../tooling/codex_check.py</code> (from <code>codex/site/</code>) — it must print <code>PASS</code> (it checks the new page's shell, relative-only links, callout structure, and that the index card resolves).</li>
+      </ol>
+      <h2 id="add-theme">How to add a theme</h2>
+      <p>Themes live in <code>assets/codex.css</code>.</p>
+      <ol>
+        <li>Add a palette block next to the existing ones — copy every variable from the <code>:root[data-theme="light"]</code> block and retune the values:</li>
+      </ol>
+<pre>:root[data-theme=&quot;NAME&quot;] { --bg: …; --text: …; /* …all 23 vars from the light block… */ }</pre>
+      <ol start="2">
+        <li>Add a matching option to the theme <code>&lt;select&gt;</code>. It is part of every page's nav bar, so add the option to <code>ch-TEMPLATE.html</code> and to each existing page's <code>&lt;select&gt;</code> (the theme list is duplicated per page in a static site — keep the theme count small):</li>
+      </ol>
+<pre>&lt;option value=&quot;NAME&quot;&gt;Label&lt;/option&gt;</pre>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth 2.0 sign-in (GitHub + Google) — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-refresh-tokens.html">‹ Prev</a><a class="navlink navnext" href="ch-abortcontroller.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>OAuth 2.0 sign-in (GitHub + Google)</h1>
+  <div class="chapter-body">
+
+    <p>"Sign in with GitHub / Google" is the <em>Authorization Code flow</em>. The
+    job is to prove to your backend that the person clicking the button controls
+    a particular GitHub/Google account, without your app ever seeing their
+    GitHub/Google password. Once that proof lands, you reuse your existing
+    session machinery (JWT access + refresh cookie + <code>sessions</code> row)
+    to log them in.</p>
+
+    <h2>The dance, end to end</h2>
+
+    <pre> Browser              Your backend             Provider (GitHub/Google)
+    │                       │                         │
+    │  click "GitHub"       │                         │
+    ├──[GET /auth/github]──→│                         │
+    │                       │ set oauth_state cookie  │
+    │                       │ build authorize URL     │
+    │ ←──[302 redirect]─────┤                         │
+    │                                                 │
+    ├──[GET authorize?client_id=…&state=X&scope=…]───→│
+    │                                                 │ user authorizes
+    │ ←─────────[302 /auth/github/callback?code=Y&state=X]──┤
+    │                       │                         │
+    ├──[GET /callback?code=Y&state=X]──→              │
+    │                       │ cookie==state ?         │
+    │                       ├──[POST token, code=Y]──→│
+    │                       │ ←──[access_token]───────┤
+    │                       ├──[GET /user]───────────→│
+    │                       │ ←──[profile]────────────┤
+    │                       │ findOrCreateUser(...)   │
+    │                       │ issueSession(...)       │  ← our JWT + refresh cookie
+    │ ←──[302 /auth/callback#token=eyJ…]──┤           │
+    │                                                 │
+    │ SPA reads location.hash, calls /me, shows welcome
+</pre>
+
+    <p>Two redirects send the browser to the provider and back, two server-to-server
+    calls swap the short-lived <code>code</code> for a profile, then a final redirect
+    drops the user back on the SPA carrying our own session — not the provider's
+    token.</p>
+
+    <h2>Why a backend at all (and not pure SPA)</h2>
+
+    <p>The token exchange call needs the <code>client_secret</code>. That secret
+    cannot live in the browser — any user could read it from devtools and
+    impersonate your app. So the swap <em>must</em> happen server-side. Pure-SPA
+    flows exist (PKCE) but if you already have a backend, classic server-side
+    Authorization Code is simpler and the secret stays out of users' hands.</p>
+
+    <h2>The <code>state</code> cookie: login-CSRF defence</h2>
+
+    <p>Before redirecting to the provider, the backend generates a random
+    <code>state</code>, stores it in an <code>httpOnly</code> cookie on the
+    victim's browser, <em>and</em> sends the same value in the authorize URL.
+    On the callback, it compares the cookie to <code>?state=…</code>. Mismatch
+    → reject. Match → trust that the same browser that visited
+    <code>/auth/github</code> is the one finishing the callback.</p>
+
+    <p>Without <code>state</code>, this attack works:</p>
+
+    <pre> Attacker                                    Victim
+    │                                            │
+    │ starts OAuth with THEIR own GitHub         │
+    ├──[/auth/github]→ … →[authorize on GH]─┐    │
+    │ ←──[callback?code=Y_attacker]─────────┘    │
+    │ intercepts code Y (never lets it complete) │
+    │                                            │
+    │ crafts: yourapp.com/auth/github/callback?code=Y_attacker
+    │             │                              │
+    │             └──[phishing img/link]───────→ │ (loads while logged in)
+    │                                            ├──→ your backend
+    │                                            │   processes attacker's code
+    │                                            │   links ATTACKER's GitHub to
+    │                                            │   VICTIM's user row
+    │                                            │
+    │ attacker can now sign in with their own GitHub → lands in victim's account
+</pre>
+
+    <p>With <code>state</code>: the victim's browser has no
+    <code>oauth_state_github</code> cookie matching <code>state=X</code> →
+    callback aborts → attack neutralised. <code>SameSite=Lax</code> on the cookie
+    means it's automatically scoped to flows the victim initiated, never sent on
+    cross-origin background loads.</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "The <code>state</code>
+      parameter is a nonce that just stops random people from hitting our
+      callback URL."</p>
+      <p><strong>Actually:</strong> <code>state</code> defends against
+      <em>login-CSRF</em> — the attacker tricking the victim's browser into
+      completing the <em>attacker's</em> OAuth flow, which would silently link
+      the attacker's social account to the victim's session. The threat isn't
+      "spam on the callback"; it's "your account is now also signable-into by
+      a stranger's GitHub."</p>
+      <p><strong>Why it matters:</strong> if you ever think "we don't really
+      need <code>state</code>, who's going to forge a callback?", you've just
+      argued yourself into a silent-takeover hole. Both the cookie and the
+      query param are required — same value, two channels, one check.</p>
+    </div>
+
+    <h2>The <code>emailVerified</code> gate: link-by-email safety</h2>
+
+    <p>When the same person signs up by password first and later clicks
+    "Continue with GitHub" (or vice versa), you want one account, not two.
+    The standard pattern is "if there's already a user with this email, link
+    the new identity to that user." That sounds harmless until you remember
+    that GitHub and Google both let users <em>add</em> an email without
+    verifying it.</p>
+
+    <pre>  Without the emailVerified gate
+  ──────────────────────────────────────────────────────────
+   victim has password account: { id: 1, email: "v@x.com" }
+   attacker creates GitHub acct, adds email "v@x.com",
+     DOES NOT verify it (just leaves it as pending)
+   attacker clicks "Continue with GitHub" on your app
+     callback gets profile { email: "v@x.com" }
+     findOrCreateUser does users.find(email = "v@x.com")
+     → returns USER 1 (the victim)
+   attacker is now logged in as the victim         ❌
+
+  With the emailVerified gate
+  ──────────────────────────────────────────────────────────
+   same attacker flow → profile.emailVerified === false
+   findOrCreateUser skips the link-by-email branch
+     → creates a brand new, separate user for the attacker
+   victim's account untouched                       ✓
+</pre>
+
+    <p>GitHub marks an email <code>verified: true</code> only after a confirmation
+    link in that inbox is clicked — same for Google. So
+    <code>emailVerified</code> is the provider saying "we actually saw the owner
+    of this address." Without that gate, "sign in with GitHub" becomes "sign in
+    as anyone whose email I can guess."</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "If GitHub returns an
+      email for the user, I can trust it enough to merge with an existing
+      account."</p>
+      <p><strong>Actually:</strong> the provider returning the email is not
+      proof of ownership. You can only trust it for linking when
+      <code>email_verified</code> (Google) or the matching row's
+      <code>verified: true</code> (GitHub's <code>/user/emails</code>) is set.
+      Anything else and you must create a separate user, not merge.</p>
+      <p><strong>Why it matters:</strong> conflating "email exists on the
+      profile" with "email belongs to this person" turns OAuth into a free
+      account-takeover primitive — type your victim's email into any new
+      social account, click the button, you're in. The gate is the only thing
+      between "social login" and "anyone can become anyone."</p>
+    </div>
+
+    <h2>Where it slots into the existing session system</h2>
+
+    <p>The OAuth callback ends by calling the <em>same</em>
+    <code>issueSession(user, request, response, db)</code> that <code>/login</code>
+    uses for passwords. That means everything downstream — JWT access tokens,
+    the <code>httpOnly</code> refresh cookie, the <code>sessions</code> row,
+    "log out everywhere" — keeps working unchanged. OAuth doesn't replace the
+    auth system; it's an additional way to land in it.</p>
+
+    <pre>  users                          identities                   sessions
+  ─────                          ──────────                   ────────
+   id ◄────────────────────┐     id                       ┌──► id
+   email                   │     userId  ──────────────── │    userId ─┐
+   password (nullable)     └──── provider (github|google) │    tokenHash
+   name                          providerId               │    userAgent
+                                 email                    │    expiresAt
+                                 createdAt                │
+                                                          │
+   one user → many identities (one per linked provider)   │
+   one user → many sessions   (one per device/login)      │
+
+   Password user:    users row, no identities row
+   GitHub-only user: users row (password=null) + 1 identity row (github)
+   Linked account:   users row + 2 identity rows (github + google)
+</pre>
+
+    <p>The <code>identities</code> table is the join. <code>findOrCreateUser</code>
+    is the only function that touches it, and its job is exactly three branches:
+    "already linked → reuse user", "verified email matches existing user → link
+    to that user", "neither → create new user + create identity." Get those
+    three right and everything else is the same JWT plumbing as before.</p>
+
+    <div class="callout caveat">
+      <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+      <p>Every dev hits <code>redirect_uri_mismatch</code> at least once and
+      forgets why. The cause is always the same: the URL your backend sends
+      (<code>${OAUTH_REDIRECT_BASE}/auth/&lt;provider&gt;/callback</code>) is
+      not byte-for-byte identical to what's registered on the provider's
+      console. Trailing slash, wrong port, <code>http</code> vs
+      <code>https</code> — all count as different. The provider's check is
+      strict string equality, not URL normalisation.</p>
+    </div>
+
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

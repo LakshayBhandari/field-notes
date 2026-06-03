@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEW CHAPTER TITLE — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <!-- TEMPLATE: replace ch-PREV.html / ch-NEXT.html with the real adjacent chapter filenames, or delete the link that does not apply (the first chapter has no Prev, the last has no Next). -->
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-PREV.html">‹ Prev</a><a class="navlink navnext" href="ch-NEXT.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>NEW CHAPTER TITLE</h1>
+  <div class="chapter-body">
+    <p>Explanation…</p>
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> …</p>
+      <p><strong>Actually:</strong> …</p>
+      <p><strong>Why it matters:</strong> …</p>
+    </div>
+    <div class="callout caveat">
+      <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+      <p>Only if a point got buried by a session roll.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>
