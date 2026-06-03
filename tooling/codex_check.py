@@ -7,11 +7,12 @@ SITE = PROJECT / "site"
 
 PAGES = ["index.html", "ch-rolling.html", "ch-authflow.html", "ch-bcrypt.html",
          "ch-jwt.html", "ch-useeffect.html", "ch-refresh-tokens.html",
-         "ch-oauth.html", "ch-abortcontroller.html", "how-to-add.html",
-         "ch-TEMPLATE.html"]
+         "ch-oauth.html", "ch-abortcontroller.html", "ch-reducer-actions.html",
+         "how-to-add.html", "ch-TEMPLATE.html"]
 CHAPTERS = ["ch-rolling.html", "ch-authflow.html", "ch-bcrypt.html",
             "ch-jwt.html", "ch-useeffect.html", "ch-refresh-tokens.html",
-            "ch-oauth.html", "ch-abortcontroller.html"]  # prev/next chain order
+            "ch-oauth.html", "ch-abortcontroller.html",
+            "ch-reducer-actions.html"]  # prev/next chain order
 
 LIGHT_VARS = ["--bg:", "--bg-card:", "--bg-code:", "--text:", "--text-dim:",
               "--text-bright:", "--border:", "--border-strong:", "--primary:",
@@ -29,6 +30,7 @@ CONTENT = {
     "ch-refresh-tokens.html": ["sha256", "sameSite"],
     "ch-oauth.html":     ["findOrCreateUser", "login-CSRF", "emailVerified"],
     "ch-abortcontroller.html": ["new AbortController()", "controller.signal.aborted"],
+    "ch-reducer-actions.html": ["action.payload", "type: 'DELETE_TODO'"],
     "how-to-add.html":   ["How to add a chapter", "How to add a theme"],
     "index.html":        ["<h1>Codex</h1>"],
 }
@@ -145,7 +147,8 @@ def main():
                   "something I got wrong while grilled", "what I said"]
     _RETONE_CH = ["ch-authflow.html", "ch-bcrypt.html", "ch-jwt.html",
                   "ch-useeffect.html", "ch-refresh-tokens.html",
-                  "ch-oauth.html", "ch-abortcontroller.html", "ch-TEMPLATE.html"]
+                  "ch-oauth.html", "ch-abortcontroller.html",
+                  "ch-reducer-actions.html", "ch-TEMPLATE.html"]
     for name in PAGES:
         p = SITE / name
         if not p.exists():

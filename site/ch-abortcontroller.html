@@ -12,7 +12,7 @@
 </head>
 <body>
 <main>
-  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-oauth.html">‹ Prev</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-oauth.html">‹ Prev</a><a class="navlink navnext" href="ch-reducer-actions.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
   <h1>AbortController in useEffect</h1>
   <div class="chapter-body">
     <p><code>AbortController</code> is a tiny browser API: you make one, hand its <code>.signal</code> to <code>fetch</code>, and later call <code>.abort()</code> to cancel that request. When aborted, the fetch promise rejects with a <code>DOMException</code> named <code>AbortError</code>.</p>

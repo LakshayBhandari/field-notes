@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>useReducer actions &amp; payload — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-abortcontroller.html">‹ Prev</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>useReducer actions &amp; payload</h1>
+  <div class="chapter-body">
+    <p>An <strong>action</strong> is just a plain object you hand to <code>dispatch</code>. The reducer is a pure function <code>(state, action) =&gt; newState</code>; React calls it for you and stores whatever you return. The <code>type</code> field says <em>which</em> operation; the <code>payload</code> field carries the <em>data</em> that operation needs.</p>
+    <pre><code>dispatch({ type: 'SET_NAME', payload: 'Lakshay' });
+
+// reducer receives exactly that object:
+case 'SET_NAME':
+  return { ...state, name: action.payload }; // name === 'Lakshay'</code></pre>
+    <p>Why read from <code>action.payload</code> instead of hardcoding? Because the <em>same</em> case must work for every value. Without a data slot you'd need absurd separate types like <code>SET_NAME_LAKSHAY</code>, <code>SET_NAME_JOHN</code>. The payload is the argument; the type is the function name. Mentally, <code>dispatch({ type: 'SET_NAME', payload: 'Lakshay' })</code> is just <code>setName('Lakshay')</code> routed through one central place.</p>
+    <pre><code>// delete by id — payload carries which one
+dispatch({ type: 'DELETE_TODO', payload: 2 });
+
+case 'DELETE_TODO':
+  return { ...state, todos: state.todos.filter(t =&gt; t.id !== action.payload) };</code></pre>
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "<code>type</code> and <code>payload</code> are special fields React requires — like a keyword the reducer engine understands."</p>
+      <p><strong>Actually:</strong> the action object is <em>entirely yours to invent</em>. React/useReducer never inspects it — it just passes whatever you dispatch straight to your reducer as arg 2. You could write <code>{ kind: 'add', data: x }</code> or <code>{ type: 'add', amount: 5, by: 'user' }</code>. <code>type</code>/<code>payload</code> is convention (popularised by Redux/Flux), not magic.</p>
+      <p><strong>Why it matters:</strong> once you see the action is just a message <em>you</em> design, the contract clicks: the reducer is the only code that reads those fields, so dispatcher and reducer must simply agree on the shape. No framework rules to memorise — you own both ends.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>
