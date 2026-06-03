@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>useReducer actions &amp; payload — Codex</title>
+<title>useReducer, line by line — Codex</title>
 <link rel="stylesheet" href="assets/codex.css">
 <script>
   /* no-flash: apply saved theme before first paint */
@@ -13,25 +13,66 @@
 <body>
 <main>
   <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-abortcontroller.html">‹ Prev</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
-  <h1>useReducer actions &amp; payload</h1>
+  <h1>useReducer, line by line</h1>
   <div class="chapter-body">
-    <p>An <strong>action</strong> is just a plain object you hand to <code>dispatch</code>. The reducer is a pure function <code>(state, action) =&gt; newState</code>; React calls it for you and stores whatever you return. The <code>type</code> field says <em>which</em> operation; the <code>payload</code> field carries the <em>data</em> that operation needs.</p>
-    <pre><code>dispatch({ type: 'SET_NAME', payload: 'Lakshay' });
+    <p>One small example, dissected piece by piece. Everything <code>useReducer</code> is made of lives in these few lines:</p>
+    <pre><code>// (1) initial state
+const initialState = { todos: [] };
 
-// reducer receives exactly that object:
-case 'SET_NAME':
-  return { ...state, name: action.payload }; // name === 'Lakshay'</code></pre>
-    <p>Why read from <code>action.payload</code> instead of hardcoding? Because the <em>same</em> case must work for every value. Without a data slot you'd need absurd separate types like <code>SET_NAME_LAKSHAY</code>, <code>SET_NAME_JOHN</code>. The payload is the argument; the type is the function name. Mentally, <code>dispatch({ type: 'SET_NAME', payload: 'Lakshay' })</code> is just <code>setName('Lakshay')</code> routed through one central place.</p>
-    <pre><code>// delete by id — payload carries which one
-dispatch({ type: 'DELETE_TODO', payload: 2 });
+// (2) the reducer: (state, action) =&gt; newState
+function reducer(state, action) {
+  switch (action.type) {            // (3)
+    case 'ADD_TODO':                // (4)
+      return { ...state, todos: [...state.todos, action.payload] };
+    case 'DELETE_TODO':
+      return { ...state, todos: state.todos.filter(t =&gt; t.id !== action.payload) };
+    default:                        // (5)
+      return state;
+  }
+}
 
-case 'DELETE_TODO':
-  return { ...state, todos: state.todos.filter(t =&gt; t.id !== action.payload) };</code></pre>
+// (6) wire it up
+const [state, dispatch] = useReducer(reducer, initialState);
+
+// (7) cause a change
+dispatch({ type: 'DELETE_TODO', payload: 2 });</code></pre>
+
+    <p><strong>Step 1 — the initial state.</strong> <code>const initialState = { todos: [] }</code> is just the value <code>state</code> starts as. It can be a number, an object, an array — anything. Here it's an object holding a <code>todos</code> array.</p>
+
+    <p><strong>Step 2 — the reducer signature.</strong> <code>function reducer(state, action)</code>. A reducer is a plain function that always takes exactly two arguments and returns the next state. <code>state</code> = the current value; <code>action</code> = a message describing what happened. You never call this function yourself — React calls it for you (Step 7).</p>
+
+    <p><strong>Step 3 — <code>switch (action.type)</code>.</strong> The action is an object like <code>{ type: 'DELETE_TODO', payload: 2 }</code>. <code>action.type</code> is the string that says <em>which</em> change to make, and the <code>switch</code> routes to the matching <code>case</code>. Think of <code>type</code> as the function name you're "calling".</p>
+
+    <p><strong>Step 4 — inside a case: build and return NEW state.</strong> Take <code>case 'ADD_TODO'</code>:</p>
+    <pre><code>return { ...state, todos: [...state.todos, action.payload] };</code></pre>
+    <ul>
+      <li><code>{ ...state }</code> — copy every existing field of state into a brand-new object (so we don't lose <code>todos</code> if there were other keys).</li>
+      <li><code>todos: [...state.todos, action.payload]</code> — a brand-new array: all the old todos, plus the new one carried in <code>action.payload</code>.</li>
+      <li>You <strong>return</strong> this new object. Whatever you return <em>becomes</em> the next state. Rule: never edit <code>state</code> directly (<code>state.todos.push(...)</code> is a bug) — always return a fresh copy.</li>
+    </ul>
+    <p>And <code>action.payload</code> is just the data the action carries. <code>type</code> says what to do; <code>payload</code> is the input it needs — exactly like an argument. <code>{ type: 'DELETE_TODO', payload: 2 }</code> means "delete, and the id is 2".</p>
+
+    <p><strong>Step 5 — the <code>default</code> case.</strong> <code>return state</code> unchanged. If an action type doesn't match anything, you must still return the current state (returning <code>undefined</code> would wipe it). It's the safety net.</p>
+
+    <p><strong>Step 6 — wiring it up.</strong> <code>const [state, dispatch] = useReducer(reducer, initialState)</code>:</p>
+    <ul>
+      <li>Right side, arg 1: <code>reducer</code> — passed <em>by reference, no parentheses</em>. You hand React the recipe; React decides when to cook.</li>
+      <li>Right side, arg 2: <code>initialState</code> — the starting value.</li>
+      <li><code>useReducer</code> returns an array of exactly two things. Left side, <code>[state, dispatch]</code>, pulls them out <em>by position</em>: slot 0 = current state (read it to render), slot 1 = the <code>dispatch</code> function (call it to change). The names are yours; the order is fixed.</li>
+    </ul>
+
+    <p><strong>Step 7 — <code>dispatch</code> the full cycle.</strong> When you run <code>dispatch({ type: 'DELETE_TODO', payload: 2 })</code>:</p>
+    <ul>
+      <li>You don't change state — you just <em>announce</em> the action.</li>
+      <li>React calls <code>reducer(currentState, { type: 'DELETE_TODO', payload: 2 })</code> for you.</li>
+      <li>The matching <code>case</code> runs, returns new state, React stores it, the component re-renders with the updated <code>state</code>.</li>
+    </ul>
+
     <div class="callout slip">
       <div class="lbl">⚠️ IMPORTANT</div>
-      <p class="said"><strong>Common misread:</strong> "<code>type</code> and <code>payload</code> are special fields React requires — like a keyword the reducer engine understands."</p>
-      <p><strong>Actually:</strong> the action object is <em>entirely yours to invent</em>. React/useReducer never inspects it — it just passes whatever you dispatch straight to your reducer as arg 2. You could write <code>{ kind: 'add', data: x }</code> or <code>{ type: 'add', amount: 5, by: 'user' }</code>. <code>type</code>/<code>payload</code> is convention (popularised by Redux/Flux), not magic.</p>
-      <p><strong>Why it matters:</strong> once you see the action is just a message <em>you</em> design, the contract clicks: the reducer is the only code that reads those fields, so dispatcher and reducer must simply agree on the shape. No framework rules to memorise — you own both ends.</p>
+      <p class="said"><strong>Common misread:</strong> writing <code>useReducer(reducer(), initialState)</code> with parentheses, or thinking you call the reducer yourself to update state.</p>
+      <p><strong>Actually:</strong> you pass <code>reducer</code> with <em>no</em> parentheses — a reference, not a call. <code>reducer()</code> would run it immediately (with no args) and pass its return value, which is wrong. You never invoke the reducer in your code at all; the <em>only</em> way it runs is React calling it in response to a <code>dispatch</code>.</p>
+      <p><strong>Why it matters:</strong> this single distinction — pass the function vs. call the function — is the most common useReducer bug, and it's the same idea behind <code>onClick={handler}</code> vs <code>onClick={handler()}</code>. Reference = "here's what to run later." Call = "run it now."</p>
     </div>
   </div>
 </main>
