@@ -13,7 +13,7 @@
 <body>
 <main>
   <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-reducer-actions.html">‹ Prev</a><a class="navlink navnext" href="ch-io-vs-socket.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
-  <h1>Cursor pagination, the sliding window</h1>
+  <h1>Cursor pagination, the sliding window<span class="src src-44com">44Com</span></h1>
   <div class="chapter-body">
     <p>This is the <code>GET /api/conversations/:id/messages</code> route from the 44Com server — history, oldest-first, paginated:</p>
     <pre><code>const { limit = '50', cursor } = request.query as { limit?: string; cursor?: string };

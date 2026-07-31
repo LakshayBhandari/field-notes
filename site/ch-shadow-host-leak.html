@@ -13,7 +13,7 @@
 <body>
 <main>
   <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-as-assertion.html">‹ Prev</a><a class="navlink navnext" href="ch-widget-css-rules.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
-  <h1>Shadow DOM: the host element still leaks</h1>
+  <h1>Shadow DOM: the host element still leaks<span class="src src-44com">44Com</span></h1>
   <div class="chapter-body">
     <p>The 44Com widget mounts into a Shadow DOM so a hostile host page can't restyle it. Shadow DOM is a sealed style scope: CSS outside can't get in, CSS inside can't leak out. So on a page with <code>* { color: red !important; font-family: Comic Sans !important }</code>, the widget's <em>contents</em> render perfectly — <code>!important</code> can't cross a shadow boundary, because it's a different scope, not a specificity fight.</p>
 

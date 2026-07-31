@@ -49,6 +49,16 @@ code { background:var(--bg-code); padding:1px 5px; border-radius:4px; font-size:
 .chapter-card .ct { font-family:var(--serif); font-size:18px; color:var(--text-bright); }
 .chapter-card .cd { font-size:13px; color:var(--text-dim); margin-top:4px; }
 
+/* Source badge — which project a chapter came from */
+.src { display:inline-block; font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+       font-weight:600; padding:2px 8px; border-radius:999px; margin-bottom:8px;
+       border:1px solid transparent; }
+.src-auth  { color:var(--violet);    border-color:var(--violet);    background:color-mix(in srgb, var(--violet) 12%, transparent); }
+.src-44com { color:var(--secondary); border-color:var(--secondary); background:color-mix(in srgb, var(--secondary) 12%, transparent); }
+.src-meta  { color:var(--text-dim);  border-color:var(--border-strong); background:transparent; }
+/* same badge, on a chapter page next to the title */
+h1 .src { vertical-align:middle; margin:0 0 0 12px; }
+
 /* Chapters (collapsible) */
 .chapter { border-top:1px solid var(--border); padding:28px 0; }
 .chapter > summary { list-style:none; cursor:pointer; display:flex; align-items:baseline; gap:12px; }
