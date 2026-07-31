@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cursor pagination, the sliding window — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-reducer-actions.html">‹ Prev</a><a class="navlink navnext" href="ch-io-vs-socket.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>Cursor pagination, the sliding window</h1>
+  <div class="chapter-body">
+    <p>This is the <code>GET /api/conversations/:id/messages</code> route from the 44Com server — history, oldest-first, paginated:</p>
+    <pre><code>const { limit = '50', cursor } = request.query as { limit?: string; cursor?: string };
+
+const messages = await prisma.message.findMany({
+  where: { conversationId: id },
+  orderBy: { createdAt: "asc" },        // oldest-first
+  take: parseInt(limit),                // page size
+  cursor: cursor ? { id: cursor } : undefined,  // where to resume
+});
+
+const nextCursor = messages.length > 0
+  ? messages[messages.length - 1].id    // last row of THIS slice
+  : null;
+return reply.code(200).send({ messages, nextCursor });</code></pre>
+
+    <p><strong><code>take</code> = how many, <code>cursor</code> = where to start.</strong> Each request runs a <em>brand-new query</em> with a different cursor, so <code>messages</code> is a different slice of the table every time — a window that slides forward:</p>
+    <pre><code>Page 1 (no cursor):  [ m1, m2, m3 ]   nextCursor = m3
+Page 2 (cursor=m3):  [ m4, m5, m6 ]   nextCursor = m6
+Page 3 (cursor=m6):  [ m7, m8, m9 ]   nextCursor = m9
+Page 4 (cursor=m9):  [ m10 ]          nextCursor = m10 or null</code></pre>
+
+    <p>The client's loop is a breadcrumb trail: each page's <code>nextCursor</code> becomes the next request's <code>cursor</code> (<code>m3 → m6 → m9 → …</code>). When the client sees <code>nextCursor: null</code> (or an empty list), it stops.</p>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "<code>messages.length</code> is always 3 on full pages, so how does <code>nextCursor</code> ever change?" — reading the array as one fixed list you page over in memory.</p>
+      <p><strong>Actually:</strong> <code>messages</code> is thrown away and rebuilt from a fresh DB query each request. The <em>length</em> stays 3, but <em>which</em> 3 rows differ, so <code>messages[messages.length - 1]</code> — the last row of <em>this</em> slice — is m3, then m6, then m9. <code>length - 1</code> computes an <em>index</em> (2); the <em>value</em> there changes because the window slid.</p>
+      <p><strong>Why it matters:</strong> the cursor isn't derived from the count — it's derived from <em>which rows you just fetched</em>. Confusing "same length" with "same data" is what makes cursor pagination feel like magic instead of a plain moving window.</p>
+    </div>
+
+    <div class="callout caveat">
+      <div class="lbl">🔄 ROLLING-SESSION CAVEAT</div>
+      <p>A raw Prisma <code>cursor: { id }</code> is <em>inclusive</em> — it returns the cursor row too, so page 2 would repeat the last row of page 1. Add <code>skip: cursor ? 1 : 0</code> to skip the cursor row itself. The 44Com route was missing this at first — if you see a duplicated boundary message, that's why.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

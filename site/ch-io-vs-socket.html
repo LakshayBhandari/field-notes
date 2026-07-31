@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>io vs socket in Socket.IO — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-cursor-pagination.html">‹ Prev</a><a class="navlink navnext" href="ch-as-assertion.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>io vs socket in Socket.IO</h1>
+  <div class="chapter-body">
+    <p><code>io</code> and <code>socket</code> are two different scopes of "who can I talk to". <code>io</code> is the <strong>whole server</strong> — every connection. <code>socket</code> is <strong>one specific connection</strong> — the single tab handed to you inside <code>io.on("connection", (socket) =&gt; …)</code>. <code>io</code> is the switchboard; <code>socket</code> is one phone line on it.</p>
+
+    <p>Three calls from the 44Com realtime layer show the whole model:</p>
+    <pre><code>// MEMBERSHIP — put THIS socket into a room. Sends nothing.
+socket.join("agents");
+
+// SEND to everyone in the room, INCLUDING the sender.
+// (message route: the send came over REST, no socket to exclude)
+io.to(`conversation:${id}`).emit(SOCKET_EVENTS.MESSAGE_NEW, message);
+
+// SEND to everyone in the room EXCEPT the sender.
+// (typing: you don't want to see your own "…typing")
+socket.to(`conversation:${conversationId}`).emit(SOCKET_EVENTS.TYPING_START);</code></pre>
+
+    <p>Mailing-list analogy: <code>socket.join(room)</code> = subscribe me to the list (no email goes out). <code>io.to(room).emit()</code> = email the whole list, me included. <code>socket.to(room).emit()</code> = email the list but not me. You always <code>join</code> first (membership), then <code>emit to</code> later (delivery) — one without the other goes nowhere.</p>
+
+    <table>
+      <tr><th>Call</th><th>Changes membership?</th><th>Sends?</th><th>Sender included?</th></tr>
+      <tr><td><code>socket.join(room)</code></td><td>yes</td><td>no</td><td>—</td></tr>
+      <tr><td><code>io.to(room).emit()</code></td><td>no</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>socket.to(room).emit()</code></td><td>no</td><td>yes</td><td>no</td></tr>
+    </table>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> thinking <code>socket.to(room)</code> and <code>io.to(room)</code> are interchangeable ways to "send to a room".</p>
+      <p><strong>Actually:</strong> <code>io.to(room)</code> starts from "everyone" so the sender receives it too; <code>socket.to(room)</code> starts from "this one socket" and means "everyone else in the room but me" — the <code>socket</code> acts as an <em>exclusion</em>. Messages use <code>io.to</code> (the sender wants the saved record back — one render path, and the round-trip proves it persisted). Typing uses <code>socket.to</code> (never echo your own indicator).</p>
+      <p><strong>Why it matters:</strong> a REST handler has no <code>socket</code> to exclude, so <code>io.to</code> is the only option there — and including the sender is exactly what you want. Reaching for <code>socket.to</code> in a place that has no socket is a category error; picking the wrong one gives echoes or silence.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

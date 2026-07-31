@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TypeScript `as` does no runtime check — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-io-vs-socket.html">‹ Prev</a><a class="navlink navnext" href="ch-shadow-host-leak.html">Next ›</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>TypeScript <code>as</code> does no runtime check</h1>
+  <div class="chapter-body">
+    <p>In the 44Com routes, request bodies were first read like this:</p>
+    <pre><code>const { visitorId } = request.body as { visitorId: string };</code></pre>
+    <p><code>as</code> is a <strong>type assertion</strong> — a promise you make to the compiler, not a check. It tells TypeScript "trust me, <code>request.body</code> is this shape" and then <em>vanishes completely</em> at runtime. TypeScript compiles to plain JavaScript, which has no types, so there is no code that verifies anything. Send <code>{}</code> and <code>visitorId</code> is <code>undefined</code> — TypeScript stays silent, Prisma throws, and you get a 500.</p>
+
+    <p>What actually validates is a <strong>Fastify JSON schema</strong> attached to the route — it inspects the real incoming JSON and rejects bad input with a 400 <em>before</em> your handler runs:</p>
+    <pre><code>app.post("/api/conversations", {
+  schema: {
+    body: {
+      type: "object",
+      required: ["visitorId"],
+      properties: { visitorId: { type: "string" } },
+    },
+  },
+}, async (request, reply) =&gt; { /* handler only runs on valid input */ });</code></pre>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> reading <code>request.body as { visitorId: string }</code> as if it validates the body, or that a value <em>is</em> a string because you asserted it.</p>
+      <p><strong>Actually:</strong> <code>as</code> is erased at compile time — it changes what the compiler <em>sees</em>, never what's <em>there</em>. <code>request.body</code> is genuinely unknown bytes from the client; <code>as</code> just paints a type over them without looking. Runtime safety comes from a schema (Fastify), or a parser (Zod), or a manual <code>if</code> — something that runs and inspects.</p>
+      <p><strong>Why it matters:</strong> the gap between "TypeScript is happy" and "the input is actually safe" is where 500s and injection bugs live. Assert for convenience at the boundary, but <em>validate</em> for safety — they are not the same tool.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>

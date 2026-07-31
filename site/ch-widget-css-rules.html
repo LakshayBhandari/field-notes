@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widget CSS survival rules: px and max z-index — Codex</title>
+<link rel="stylesheet" href="assets/codex.css">
+<script>
+  /* no-flash: apply saved theme before first paint */
+  try { var _t = localStorage.getItem('codex-theme'); if (_t) document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div class="controls"><a class="navlink" href="index.html">← Home</a><a class="navlink navprev" href="ch-shadow-host-leak.html">‹ Prev</a><select id="theme-select" onchange="setTheme(this.value)" aria-label="Theme"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+  <h1>Widget CSS survival rules: px and max z-index</h1>
+  <div class="chapter-body">
+    <p>A Shadow DOM seals the 44Com widget's styles off from the host page — but two things still leak through the boundary or fight the widget from outside it. Both have blunt, non-negotiable fixes.</p>
+
+    <p><strong>Rule 1 — size in <code>px</code>, never <code>rem</code>.</strong> <code>rem</code> resolves against the <em>host page's</em> root <code>&lt;html&gt;</code> font-size, which you don't control and can't see through the shadow boundary. A host with <code>html { font-size: 30px }</code> would blow your whole widget up 2×. <code>px</code> is absolute — a fixed number of device pixels — so it renders the same on every host.</p>
+    <pre><code>/* widget CSS (injected into the shadow root) */
+.bubble { width: 56px; height: 56px; }   /* ✅ px — immune to host */
+/* .bubble { width: 3.5rem; }               ❌ rem — scales with host's root */</code></pre>
+
+    <p><strong>Rule 2 — <code>z-index: 2147483647</code> on the bubble/panel.</strong> That's the 32-bit signed max. The hostile test page had a <code>z-index: 999999</code> overlay bar; a real site might have sticky headers, cookie banners, modal backdrops. Stacking context is a page-level concern — the shadow boundary does <em>not</em> isolate it — so your floating widget must claim the top of the stack to guarantee nothing covers it.</p>
+    <pre><code>.bubble, .panel { z-index: 2147483647; }  /* max — nothing sits above it */</code></pre>
+
+    <div class="callout slip">
+      <div class="lbl">⚠️ IMPORTANT</div>
+      <p class="said"><strong>Common misread:</strong> "the widget is in a shadow root, so units and stacking are isolated too — I can use <code>rem</code> and a normal <code>z-index</code>."</p>
+      <p><strong>Actually:</strong> Shadow DOM isolates <em>which CSS rules apply</em>, not <em>how values resolve</em> or <em>how layers stack</em>. <code>rem</code> still resolves against the host's root font-size, and <code>z-index</code> competes in the page's global stacking context. Use <code>px</code> for all widget sizing, and the max <code>z-index</code> (<code>2147483647</code>) on anything that floats over the page.</p>
+      <p><strong>Why it matters:</strong> these are the two leak vectors that survive a "sealed" shadow root. A widget that looks perfect on your clean test page can render giant, or vanish behind a cookie banner, on a real customer's site — the exact failures a hostile host page is built to catch early.</p>
+    </div>
+  </div>
+</main>
+<script src="assets/codex.js"></script>
+</body>
+</html>
